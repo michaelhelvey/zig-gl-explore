@@ -151,6 +151,11 @@ fn render(
     c.glActiveTexture(c.GL_TEXTURE1);
     c.glBindTexture(c.GL_TEXTURE_2D, second_texture);
 
+    const time: f32 = @floatCast(c.glfwGetTime());
+    var translation = zlm.Mat4.createAngleAxis(zlm.Vec3.new(0.5, 0.4, 0.0), time);
+    translation = zlm.Mat4.createUniformScale(0.5).mul(translation);
+    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "transform"), 1, c.GL_FALSE, @ptrCast(&translation.fields));
+
     c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
     c.glBindVertexArray(0);
 }
@@ -230,10 +235,6 @@ pub fn main() !void {
     c.glVertexAttribPointer(@intCast(posAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), null);
     c.glEnableVertexAttribArray(@intCast(posAttribute));
 
-    const colorAttribute = c.glGetAttribLocation(shaderProgram.id, "color");
-    c.glVertexAttribPointer(@intCast(colorAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
-    c.glEnableVertexAttribArray(@intCast(colorAttribute));
-
     const textureCoordAttr = c.glGetAttribLocation(shaderProgram.id, "textureCoord");
     c.glVertexAttribPointer(@intCast(textureCoordAttr), 2, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(@intCast(textureCoordAttr));
@@ -247,12 +248,6 @@ pub fn main() !void {
     shaderProgram.use();
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
-
-    const translation = zlm.Mat4.createTranslation(zlm.Vec3.new(1.0, 1.0, 0.0));
-    var vec = zlm.Vec4.new(1.0, 0.0, 0.0, 1.0);
-    vec = vec.transform(translation);
-
-    std.log.debug("transformed vector: {any}", .{vec});
 
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
         render(&shaderProgram, vao, container_img.id, face_img.id);
