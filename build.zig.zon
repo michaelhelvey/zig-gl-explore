@@ -1,0 +1,16 @@
+.{
+    .name = "zig-gl",
+    .version = "0.0.1",
+    .paths = .{
+        "build.zig.zon",
+    },
+    .dependencies = .{
+        // the name of the package
+        .zlm = .{
+            // the url to the release of the module
+            .url = "https://github.com/ziglibs/zlm/archive/refs/heads/master.zip",
+            // the hash of the module, this is not the checksum of the tarball
+            .hash = "1220342ac333965de915f74a8425e4848ffe46852da0e4789103f9ec650c3cd22456",
+        },
+    },
+}

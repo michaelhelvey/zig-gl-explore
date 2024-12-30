@@ -11,6 +11,9 @@ pub fn build(b: *std.Build) void {
         .name = "game",
     });
 
+    const zlm = b.dependency("zlm", .{});
+    exe.root_module.addImport("zlm", zlm.module("zlm"));
+
     exe.addCSourceFiles(.{ .files = &[_][]const u8{ "./src/glad/src/glad.c", "./src/stb/stb_image.c" } });
     exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = "/opt/homebrew/lib" });
     exe.addSystemIncludePath(std.Build.LazyPath{ .cwd_relative = "/opt/homebrew/include" });

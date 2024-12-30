@@ -1,3 +1,4 @@
+const zlm = @import("zlm");
 const c = @cImport({
     @cInclude("glad/glad.h");
     @cInclude("GLFW/glfw3.h");
@@ -12,6 +13,7 @@ const Texture = struct {
 
     const Self = @This();
 
+    /// Loads an image from the given path using stb_image
     pub fn load(path: [*c]const u8, channels: c_uint) !Self {
         var width: i32 = 0;
         var height: i32 = 0;
@@ -240,10 +242,17 @@ pub fn main() !void {
     const container_img = try Texture.load("./assets/container.jpg", c.GL_RGB);
     const face_img = try Texture.load("./assets/face.png", c.GL_RGBA);
 
-    // QUESTION: where do these numbers come from that we're setting?
+    // QUESTION: these magic numbers feel pretty bad...is there some kind of more declarative way
+    // to define textures?
     shaderProgram.use();
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
+
+    const translation = zlm.Mat4.createTranslation(zlm.Vec3.new(1.0, 1.0, 0.0));
+    var vec = zlm.Vec4.new(1.0, 0.0, 0.0, 1.0);
+    vec = vec.transform(translation);
+
+    std.log.debug("transformed vector: {any}", .{vec});
 
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
         render(&shaderProgram, vao, container_img.id, face_img.id);
