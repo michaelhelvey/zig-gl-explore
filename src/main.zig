@@ -2,51 +2,152 @@ const c = @cImport({
     @cInclude("glad/glad.h");
     @cInclude("GLFW/glfw3.h");
     @cInclude("OpenGL/gl.h");
+    @cInclude("stb_image.h");
 });
 const std = @import("std");
 
-const vertexShaderSource =
-    \\ #version 410 core
-    \\ layout (location = 0) in vec3 position;
-    \\ void main()
-    \\ {
-    \\  gl_Position = vec4(position.x, position.y, position.z, 1.0);
-    \\ }
-;
+const Texture = struct {
+    id: u32,
+    file_path: [*c]const u8,
 
-const fragmentShaderSource =
-    \\ #version 410 core
-    \\ uniform vec3 triangleColor;
-    \\ out vec4 outColor;
-    \\ void main()
-    \\ {
-    \\  outColor = vec4(triangleColor, 1.0f);
-    \\ }
-;
+    const Self = @This();
+
+    pub fn load(path: [*c]const u8, channels: c_uint) !Self {
+        var width: i32 = 0;
+        var height: i32 = 0;
+        var nr_channels: i32 = 0;
+        const texture_data = c.stbi_load(path, &width, &height, &nr_channels, 0);
+        if (texture_data == null) {
+            return error.CouldNotLoadTexture;
+        }
+
+        var texture_id: u32 = 0;
+        c.glGenTextures(1, &texture_id);
+        c.glBindTexture(c.GL_TEXTURE_2D, texture_id);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGB, width, height, 0, channels, c.GL_UNSIGNED_BYTE, texture_data);
+        c.glGenerateMipmap(c.GL_TEXTURE_2D);
+        c.stbi_image_free(texture_data);
+
+        std.log.debug("Texture::load: loaded {s}", .{path});
+
+        return .{ .id = texture_id, .file_path = path };
+    }
+
+    pub fn bind(self: *const Self) void {
+        c.glBindTexture(c.GL_TEXTURE_2D, self.id);
+    }
+};
+
+const Shader = struct {
+    id: u32,
+
+    const Self = @This();
+
+    /// Loads and compiles the shader from the given path
+    pub fn load(allocator: std.mem.Allocator, path: []const u8) !Self {
+        var shaderType: u32 = 0;
+        if (std.mem.endsWith(u8, path, ".vert")) {
+            shaderType = c.GL_VERTEX_SHADER;
+        } else if (std.mem.endsWith(u8, path, ".frag")) {
+            shaderType = c.GL_FRAGMENT_SHADER;
+        } else {
+            std.log.err(
+                "Shader::load: invalid file path {s}, expected <name>.<frag | vert>",
+                .{path},
+            );
+            return error.InvalidShaderPath;
+        }
+
+        const shaderContents = try std.fs.cwd().readFileAllocOptions(allocator, path, 0x1000, null, @alignOf(u8), 0);
+        defer allocator.free(shaderContents);
+        const shaderId = c.glCreateShader(shaderType);
+
+        c.glShaderSource(shaderId, 1, &shaderContents.ptr, null);
+        c.glCompileShader(shaderId);
+
+        var s: i32 = 1;
+        var info: [512]u8 = undefined;
+        c.glGetShaderiv(shaderId, c.GL_COMPILE_STATUS, &s);
+
+        if (s != c.GL_TRUE) {
+            c.glGetShaderInfoLog(shaderId, @sizeOf(@TypeOf(info)), null, &info);
+            std.log.err("Shader::load: compilation error in {s}: {s}", .{ path, info });
+            return error.ShaderCompilation;
+        }
+
+        std.log.debug("Shader::load: successfully loaded & compiled {s}", .{path});
+
+        return .{ .id = shaderId };
+    }
+
+    pub fn delete(self: *const Self) void {
+        c.glDeleteShader(self.id);
+    }
+};
+
+const ShaderProgram = struct {
+    id: u32,
+    const Self = @This();
+
+    pub fn create(
+        vertex: Shader,
+        fragment: Shader,
+        // FIXME(msh): these feels weird and hacky, probably need an options struct or
+        // something here
+        color_number: u32,
+        color_var: [:0]const u8,
+    ) !Self {
+        const programId = c.glCreateProgram();
+        c.glAttachShader(programId, vertex.id);
+        c.glAttachShader(programId, fragment.id);
+        c.glBindFragDataLocation(programId, color_number, color_var);
+        c.glLinkProgram(programId);
+
+        var s: i32 = 1;
+        var info: [512]u8 = undefined;
+        c.glGetProgramiv(programId, c.GL_LINK_STATUS, &s);
+
+        if (s != c.GL_TRUE) {
+            c.glGetProgramInfoLog(programId, @sizeOf(@TypeOf(info)), null, &info);
+            std.log.err("ShaderProgram::create: could not link program: {s}", .{info});
+            return error.ShaderProgramLink;
+        }
+
+        vertex.delete();
+        fragment.delete();
+
+        return .{ .id = programId };
+    }
+
+    pub fn use(self: *const Self) void {
+        c.glUseProgram(self.id);
+    }
+};
 
 const vertices = [_]f32{
-    0.5, 0.5, 0.0, // top right
-    0.5, -0.5, 0.0, // bottom right
-    -0.5, -0.5, 0.0, // bottom left
-    -0.5, 0.5, 0.0, // top left
+    // positions   // colors      // texture coords
+    0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, // top right
+    0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, // bottom right
+    -0.5, -0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, // bottom let
+    -0.5, 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, // top let
 };
 
-const indices = [_]u32{
-    0, 1, 3, // first triangle
-    1, 2, 3, // second triangle
-};
-
-fn render(shaderProgram: u32, vao: u32) void {
+fn render(
+    shaderProgram: *const ShaderProgram,
+    vao: u32,
+    first_texture: u32,
+    second_texture: u32,
+) void {
     c.glClearColor(0.2, 0.3, 0.2, 1.0);
     c.glClear(c.GL_COLOR_BUFFER_BIT);
 
-    c.glUseProgram(shaderProgram);
+    shaderProgram.use();
     c.glBindVertexArray(vao);
 
-    const triangleColor = c.glGetUniformLocation(shaderProgram, "triangleColor");
-    const t = c.glfwGetTime();
-    const green = @sin(t / 2.0) + 0.5;
-    c.glUniform3f(triangleColor, 0.0, @floatCast(green), 0.0);
+    c.glActiveTexture(c.GL_TEXTURE0);
+    c.glBindTexture(c.GL_TEXTURE_2D, first_texture);
+    c.glActiveTexture(c.GL_TEXTURE1);
+    c.glBindTexture(c.GL_TEXTURE_2D, second_texture);
 
     c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
     c.glBindVertexArray(0);
@@ -54,15 +155,16 @@ fn render(shaderProgram: u32, vao: u32) void {
 
 fn glfwErrorCallback(code: i32, description: [*c]const u8) callconv(.C) void {
     _ = code;
-    std.log.err("glfw error: {s}\n", .{description});
+    std.log.err("glfw error: {s}", .{description});
 }
 
 fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: i32, height: i32) callconv(.C) void {
     _ = window;
+    std.log.debug("framebuffer size changed to width={d}, height={d}", .{ width, height });
     c.glViewport(0, 0, width, height);
 }
 
-pub fn main() void {
+pub fn main() !void {
     if (c.glfwInit() != c.GLFW_TRUE) {
         std.log.err("could not init glfw", .{});
     }
@@ -75,7 +177,7 @@ pub fn main() void {
     _ = c.glfwSetErrorCallback(glfwErrorCallback);
 
     const window = c.glfwCreateWindow(800, 600, "OpenGL Demo", null, null) orelse {
-        std.log.err("could not create window\n", .{});
+        std.log.err("could not create window", .{});
         return;
     };
 
@@ -88,47 +190,16 @@ pub fn main() void {
         return;
     }
 
-    const vertexShader = c.glCreateShader(c.GL_VERTEX_SHADER);
-    c.glShaderSource(vertexShader, 1, @ptrCast(&vertexShaderSource), null);
-    c.glCompileShader(vertexShader);
-    var s: i32 = 1;
-    var info: [512]u8 = undefined;
-    c.glGetShaderiv(vertexShader, c.GL_COMPILE_STATUS, &s);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
 
-    if (s != c.GL_TRUE) {
-        c.glGetShaderInfoLog(vertexShader, @sizeOf(@TypeOf(info)), null, &info);
-        std.log.err("could not compile vertex shader: {s}\n", .{info});
-        return;
-    }
-
-    const fragmentShader = c.glCreateShader(c.GL_FRAGMENT_SHADER);
-    c.glShaderSource(fragmentShader, 1, @ptrCast(&fragmentShaderSource), null);
-    c.glCompileShader(fragmentShader);
-
-    @memset(&info, 0x0);
-    c.glGetShaderiv(fragmentShader, c.GL_COMPILE_STATUS, &s);
-    if (s != c.GL_TRUE) {
-        c.glGetShaderInfoLog(fragmentShader, @sizeOf(@TypeOf(info)), null, &info);
-        std.log.err("could not compile fragment shader: {s}\n", .{info});
-        return;
-    }
-
-    const shaderProgram = c.glCreateProgram();
-    c.glAttachShader(shaderProgram, vertexShader);
-    c.glAttachShader(shaderProgram, fragmentShader);
-    // 0 by default, so we don't technically need this line:
-    c.glBindFragDataLocation(shaderProgram, 0, "outColor");
-    c.glLinkProgram(shaderProgram);
-
-    c.glGetProgramiv(shaderProgram, c.GL_LINK_STATUS, &s);
-    if (s != c.GL_TRUE) {
-        c.glGetProgramInfoLog(shaderProgram, @sizeOf(@TypeOf(info)), null, &info);
-        std.log.err("could not link program: {s}\n", .{info});
-        return;
-    }
-
-    c.glDeleteShader(fragmentShader);
-    c.glDeleteShader(vertexShader);
+    const shaderProgram = try ShaderProgram.create(
+        try Shader.load(allocator, "./src/triangle.vert"),
+        try Shader.load(allocator, "./src/triangle.frag"),
+        0,
+        "outColor",
+    );
 
     // copy our vertices array into a buffer:
     var vbo: u32 = 0;
@@ -141,22 +212,44 @@ pub fn main() void {
     c.glGenVertexArrays(1, &vao);
     c.glBindVertexArray(vao);
 
-    // create an element buffer:
+    // create an elements buffer for de-duplicating indexes:
+    const indices = [_]u32{
+        0, 1, 3,
+        1, 2, 3,
+    };
+
     var ebo: u32 = 0;
     c.glGenBuffers(1, &ebo);
     c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, ebo);
     c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @sizeOf(@TypeOf(indices)), &indices, c.GL_STATIC_DRAW);
 
     // set vertex attributes pointers
-    const posAttribute = c.glGetAttribLocation(shaderProgram, "position");
-    c.glVertexAttribPointer(@intCast(posAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 3 * @sizeOf(f32), null);
+    const posAttribute = c.glGetAttribLocation(shaderProgram.id, "position");
+    c.glVertexAttribPointer(@intCast(posAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), null);
     c.glEnableVertexAttribArray(@intCast(posAttribute));
 
+    const colorAttribute = c.glGetAttribLocation(shaderProgram.id, "color");
+    c.glVertexAttribPointer(@intCast(colorAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    c.glEnableVertexAttribArray(@intCast(colorAttribute));
+
+    const textureCoordAttr = c.glGetAttribLocation(shaderProgram.id, "textureCoord");
+    c.glVertexAttribPointer(@intCast(textureCoordAttr), 2, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
+    c.glEnableVertexAttribArray(@intCast(textureCoordAttr));
+
+    c.stbi_set_flip_vertically_on_load(1);
+    const container_img = try Texture.load("./assets/container.jpg", c.GL_RGB);
+    const face_img = try Texture.load("./assets/face.png", c.GL_RGBA);
+
+    // QUESTION: where do these numbers come from that we're setting?
+    shaderProgram.use();
+    c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
+    c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
+
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
-        render(shaderProgram, vao);
+        render(&shaderProgram, vao, container_img.id, face_img.id);
         c.glfwSwapBuffers(window);
         c.glfwPollEvents();
     }
 
-    std.debug.print("exited render loop", .{});
+    std.log.debug("exited render loop", .{});
 }

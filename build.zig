@@ -11,10 +11,11 @@ pub fn build(b: *std.Build) void {
         .name = "game",
     });
 
-    exe.addCSourceFiles(.{ .files = &[_][]const u8{"./src/glad/src/glad.c"} });
+    exe.addCSourceFiles(.{ .files = &[_][]const u8{ "./src/glad/src/glad.c", "./src/stb/stb_image.c" } });
     exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = "/opt/homebrew/lib" });
     exe.addSystemIncludePath(std.Build.LazyPath{ .cwd_relative = "/opt/homebrew/include" });
     exe.addSystemIncludePath(b.path("./src/glad/include"));
+    exe.addSystemIncludePath(b.path("./src/stb"));
     exe.linkSystemLibrary("glfw3");
     exe.linkFramework("OpenGL");
     exe.linkLibC();
