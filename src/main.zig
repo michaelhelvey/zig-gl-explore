@@ -127,11 +127,60 @@ const ShaderProgram = struct {
 };
 
 const vertices = [_]f32{
-    // positions   // colors      // texture coords
-    0.5, 0.5, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, // top right
-    0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, // bottom right
-    -0.5, -0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, // bottom let
-    -0.5, 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, // top let
+    -0.5, -0.5, -0.5, 0.0, 0.0,
+    0.5,  -0.5, -0.5, 1.0, 0.0,
+    0.5,  0.5,  -0.5, 1.0, 1.0,
+    0.5,  0.5,  -0.5, 1.0, 1.0,
+    -0.5, 0.5,  -0.5, 0.0, 1.0,
+    -0.5, -0.5, -0.5, 0.0, 0.0,
+
+    -0.5, -0.5, 0.5,  0.0, 0.0,
+    0.5,  -0.5, 0.5,  1.0, 0.0,
+    0.5,  0.5,  0.5,  1.0, 1.0,
+    0.5,  0.5,  0.5,  1.0, 1.0,
+    -0.5, 0.5,  0.5,  0.0, 1.0,
+    -0.5, -0.5, 0.5,  0.0, 0.0,
+
+    -0.5, 0.5,  0.5,  1.0, 0.0,
+    -0.5, 0.5,  -0.5, 1.0, 1.0,
+    -0.5, -0.5, -0.5, 0.0, 1.0,
+    -0.5, -0.5, -0.5, 0.0, 1.0,
+    -0.5, -0.5, 0.5,  0.0, 0.0,
+    -0.5, 0.5,  0.5,  1.0, 0.0,
+
+    0.5,  0.5,  0.5,  1.0, 0.0,
+    0.5,  0.5,  -0.5, 1.0, 1.0,
+    0.5,  -0.5, -0.5, 0.0, 1.0,
+    0.5,  -0.5, -0.5, 0.0, 1.0,
+    0.5,  -0.5, 0.5,  0.0, 0.0,
+    0.5,  0.5,  0.5,  1.0, 0.0,
+
+    -0.5, -0.5, -0.5, 0.0, 1.0,
+    0.5,  -0.5, -0.5, 1.0, 1.0,
+    0.5,  -0.5, 0.5,  1.0, 0.0,
+    0.5,  -0.5, 0.5,  1.0, 0.0,
+    -0.5, -0.5, 0.5,  0.0, 0.0,
+    -0.5, -0.5, -0.5, 0.0, 1.0,
+
+    -0.5, 0.5,  -0.5, 0.0, 1.0,
+    0.5,  0.5,  -0.5, 1.0, 1.0,
+    0.5,  0.5,  0.5,  1.0, 0.0,
+    0.5,  0.5,  0.5,  1.0, 0.0,
+    -0.5, 0.5,  0.5,  0.0, 0.0,
+    -0.5, 0.5,  -0.5, 0.0, 1.0,
+};
+
+const cube_positions = [_]zlm.Vec3{
+    zlm.Vec3.new(0.0, 0.0, 0.0),
+    zlm.Vec3.new(2.0, 5.0, -15.0),
+    zlm.Vec3.new(-1.5, -2.2, -2.5),
+    zlm.Vec3.new(-3.8, -2.0, -12.3),
+    zlm.Vec3.new(2.4, -0.4, -3.5),
+    zlm.Vec3.new(-1.7, 3.0, -7.5),
+    zlm.Vec3.new(1.3, -2.0, -2.5),
+    zlm.Vec3.new(1.5, 2.0, -2.5),
+    zlm.Vec3.new(1.5, 0.2, -1.5),
+    zlm.Vec3.new(-1.3, 1.0, -1.5),
 };
 
 fn render(
@@ -141,7 +190,7 @@ fn render(
     second_texture: u32,
 ) void {
     c.glClearColor(0.2, 0.3, 0.2, 1.0);
-    c.glClear(c.GL_COLOR_BUFFER_BIT);
+    c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
     shaderProgram.use();
     c.glBindVertexArray(vao);
@@ -151,12 +200,14 @@ fn render(
     c.glActiveTexture(c.GL_TEXTURE1);
     c.glBindTexture(c.GL_TEXTURE_2D, second_texture);
 
-    const time: f32 = @floatCast(c.glfwGetTime());
-    var translation = zlm.Mat4.createAngleAxis(zlm.Vec3.new(0.5, 0.4, 0.0), time);
-    translation = zlm.Mat4.createUniformScale(0.5).mul(translation);
-    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "transform"), 1, c.GL_FALSE, @ptrCast(&translation.fields));
+    for (cube_positions, 0..) |cube, i| {
+        const translation = zlm.Mat4.createTranslation(cube);
+        const angle: f32 = 20.0 * @as(f32, @floatFromInt(i + 1)) * @as(f32, @floatCast(c.glfwGetTime()));
+        const model = zlm.Mat4.createAngleAxis(zlm.Vec3.new(1.0, 0.3, 0.5), zlm.toRadians(angle)).mul(translation);
+        c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "model"), 1, c.GL_FALSE, @ptrCast(&model.fields));
+        c.glDrawArrays(c.GL_TRIANGLES, 0, vertices.len);
+    }
 
-    c.glDrawElements(c.GL_TRIANGLES, 6, c.GL_UNSIGNED_INT, null);
     c.glBindVertexArray(0);
 }
 
@@ -197,6 +248,8 @@ pub fn main() !void {
         return;
     }
 
+    c.glEnable(c.GL_DEPTH_TEST);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
@@ -219,24 +272,13 @@ pub fn main() !void {
     c.glGenVertexArrays(1, &vao);
     c.glBindVertexArray(vao);
 
-    // create an elements buffer for de-duplicating indexes:
-    const indices = [_]u32{
-        0, 1, 3,
-        1, 2, 3,
-    };
-
-    var ebo: u32 = 0;
-    c.glGenBuffers(1, &ebo);
-    c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, ebo);
-    c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, @sizeOf(@TypeOf(indices)), &indices, c.GL_STATIC_DRAW);
-
     // set vertex attributes pointers
     const posAttribute = c.glGetAttribLocation(shaderProgram.id, "position");
-    c.glVertexAttribPointer(@intCast(posAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), null);
+    c.glVertexAttribPointer(@intCast(posAttribute), 3, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), null);
     c.glEnableVertexAttribArray(@intCast(posAttribute));
 
     const textureCoordAttr = c.glGetAttribLocation(shaderProgram.id, "textureCoord");
-    c.glVertexAttribPointer(@intCast(textureCoordAttr), 2, c.GL_FLOAT, c.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
+    c.glVertexAttribPointer(@intCast(textureCoordAttr), 2, c.GL_FLOAT, c.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     c.glEnableVertexAttribArray(@intCast(textureCoordAttr));
 
     c.stbi_set_flip_vertically_on_load(1);
@@ -248,6 +290,11 @@ pub fn main() !void {
     shaderProgram.use();
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
+
+    const view = zlm.Mat4.createTranslation(zlm.Vec3.new(0.0, 0.0, -3.0));
+    const perspective = zlm.Mat4.createPerspective(zlm.toRadians(45.0), 800.0 / 600.0, 0.1, 100.0);
+    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "view"), 1, c.GL_FALSE, @ptrCast(&view.fields));
+    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "projection"), 1, c.GL_FALSE, @ptrCast(&perspective.fields));
 
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
         render(&shaderProgram, vao, container_img.id, face_img.id);
