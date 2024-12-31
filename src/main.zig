@@ -126,6 +126,9 @@ const ShaderProgram = struct {
     }
 };
 
+var camera_pitch: f32 = 0.0;
+var camera_yaw: f32 = -90.0;
+
 const Camera = struct {
     up: zlm.Vec3,
     front: zlm.Vec3,
@@ -135,6 +138,9 @@ const Camera = struct {
 
     pub fn default() Self {
         return .{
+            // TODO: we should really use the pitch and yaw values when calculating front here,
+            // rather than doing it for the first time on mouse callback, and having them
+            // "just happen" to be right because we hard-coded yaw to -90 (straight ahead??)
             .up = zlm.Vec3.new(0.0, 1.0, 0.0),
             .front = zlm.Vec3.new(0.0, 0.0, -1.0),
             .position = zlm.Vec3.new(0.0, 0.0, 3.0),
@@ -145,6 +151,7 @@ const Camera = struct {
         return zlm.Mat4.createLookAt(self.position, self.position.add(self.front), self.up);
     }
 };
+var camera = Camera.default();
 
 const vertices = [_]f32{
     -0.5, -0.5, -0.5, 0.0, 0.0,
@@ -206,9 +213,6 @@ const cube_positions = [_]zlm.Vec3{
 fn render(
     shaderProgram: *const ShaderProgram,
     vao: u32,
-    first_texture: u32,
-    second_texture: u32,
-    camera: *Camera,
 ) void {
     c.glClearColor(0.2, 0.3, 0.2, 1.0);
     c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
@@ -216,17 +220,6 @@ fn render(
     shaderProgram.use();
     c.glBindVertexArray(vao);
 
-    c.glActiveTexture(c.GL_TEXTURE0);
-    c.glBindTexture(c.GL_TEXTURE_2D, first_texture);
-    c.glActiveTexture(c.GL_TEXTURE1);
-    c.glBindTexture(c.GL_TEXTURE_2D, second_texture);
-
-    // const radius = 10.0;
-    // const time: f32 = @as(f32, @floatCast(c.glfwGetTime()));
-    // const camera_x: f32 = @sin(time) * radius;
-    // const camera_z: f32 = @cos(time) * radius;
-
-    // const view = zlm.Mat4.createLookAt(zlm.Vec3.new(camera_x, 0.0, camera_z), zlm.Vec3.zero, zlm.Vec3.new(0.0, 1.0, 0.0));
     const view = camera.lookAt();
     c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "view"), 1, c.GL_FALSE, @ptrCast(&view.fields));
 
@@ -252,8 +245,9 @@ fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: i32, height: i32) call
     c.glViewport(0, 0, width, height);
 }
 
-fn processInput(window: *c.GLFWwindow, camera: *Camera) void {
-    const camera_speed = 0.05;
+fn processInput(window: *c.GLFWwindow, deltaTime: f32) void {
+    // TODO: move this stuff into the camera class
+    const camera_speed = deltaTime * 2.5;
     if (c.glfwGetKey(window, c.GLFW_KEY_W) == c.GLFW_PRESS) {
         camera.position = camera.position.add(camera.front.scale(camera_speed));
     }
@@ -269,6 +263,46 @@ fn processInput(window: *c.GLFWwindow, camera: *Camera) void {
     if (c.glfwGetKey(window, c.GLFW_KEY_D) == c.GLFW_PRESS) {
         camera.position = camera.position.add(camera.front.cross(camera.up).normalize().scale(camera_speed));
     }
+}
+
+// TODO: set this to the center of the window based on our defined size
+var mouse_x: f32 = 400.0;
+var mouse_y: f32 = 300.0;
+var first_mouse = true;
+
+fn mouseCallback(window: ?*c.GLFWwindow, x: f64, y: f64) callconv(.C) void {
+    _ = window;
+    // calculate the distance between the x and y of the last frame
+    // add the offsets to the camera's pitch and yaw values
+    // add constraints to the min/max pitch values
+    // set the camera's new direction vector
+    if (first_mouse) {
+        mouse_x = @floatCast(x);
+        mouse_y = @floatCast(y);
+        first_mouse = false;
+    }
+    const sens = 0.1;
+    var xoff: f64 = x - mouse_x;
+    var yoff: f64 = mouse_y - y; // reversed since postive y movement = y > previous_y
+    mouse_x = @floatCast(x);
+    mouse_y = @floatCast(y);
+
+    xoff = xoff * sens;
+    yoff = yoff * sens;
+
+    camera_yaw += @floatCast(xoff);
+    camera_pitch += @floatCast(yoff);
+
+    std.log.debug("yaw = {d}, pitch = {d}", .{ camera_yaw, camera_pitch });
+
+    camera_pitch = std.math.clamp(camera_pitch, -89.0, 89.0);
+    const direction_vector = zlm.Vec3.new(
+        @cos(zlm.toRadians(camera_yaw)) * @cos(zlm.toRadians(camera_pitch)),
+        @sin(zlm.toRadians(camera_pitch)),
+        @sin(zlm.toRadians(camera_yaw)) * @cos(zlm.toRadians(camera_pitch)),
+    );
+
+    camera.front = direction_vector.normalize();
 }
 
 pub fn main() !void {
@@ -290,6 +324,8 @@ pub fn main() !void {
 
     _ = c.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     c.glfwMakeContextCurrent(window);
+    c.glfwSetInputMode(window, c.GLFW_CURSOR, c.GLFW_CURSOR_DISABLED);
+    _ = c.glfwSetCursorPosCallback(window, mouseCallback);
 
     const version = c.gladLoadGL();
     if (version == 0) {
@@ -340,13 +376,22 @@ pub fn main() !void {
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
 
+    c.glActiveTexture(c.GL_TEXTURE0);
+    c.glBindTexture(c.GL_TEXTURE_2D, container_img.id);
+    c.glActiveTexture(c.GL_TEXTURE1);
+    c.glBindTexture(c.GL_TEXTURE_2D, face_img.id);
+
     const perspective = zlm.Mat4.createPerspective(zlm.toRadians(45.0), 800.0 / 600.0, 0.1, 100.0);
     c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "projection"), 1, c.GL_FALSE, @ptrCast(&perspective.fields));
 
-    var camera = Camera.default();
+    var lastTime: f64 = 0;
+    var deltaTime: f64 = 0;
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
-        processInput(window, &camera);
-        render(&shaderProgram, vao, container_img.id, face_img.id, &camera);
+        const currentTime = c.glfwGetTime();
+        deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+        processInput(window, @floatCast(deltaTime));
+        render(&shaderProgram, vao);
         c.glfwSwapBuffers(window);
         c.glfwPollEvents();
     }
