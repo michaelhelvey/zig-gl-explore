@@ -126,6 +126,26 @@ const ShaderProgram = struct {
     }
 };
 
+const Camera = struct {
+    up: zlm.Vec3,
+    front: zlm.Vec3,
+    position: zlm.Vec3,
+
+    const Self = @This();
+
+    pub fn default() Self {
+        return .{
+            .up = zlm.Vec3.new(0.0, 1.0, 0.0),
+            .front = zlm.Vec3.new(0.0, 0.0, -1.0),
+            .position = zlm.Vec3.new(0.0, 0.0, 3.0),
+        };
+    }
+
+    pub fn lookAt(self: *const Self) zlm.Mat4 {
+        return zlm.Mat4.createLookAt(self.position, self.position.add(self.front), self.up);
+    }
+};
+
 const vertices = [_]f32{
     -0.5, -0.5, -0.5, 0.0, 0.0,
     0.5,  -0.5, -0.5, 1.0, 0.0,
@@ -188,6 +208,7 @@ fn render(
     vao: u32,
     first_texture: u32,
     second_texture: u32,
+    camera: *Camera,
 ) void {
     c.glClearColor(0.2, 0.3, 0.2, 1.0);
     c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
@@ -200,9 +221,18 @@ fn render(
     c.glActiveTexture(c.GL_TEXTURE1);
     c.glBindTexture(c.GL_TEXTURE_2D, second_texture);
 
+    // const radius = 10.0;
+    // const time: f32 = @as(f32, @floatCast(c.glfwGetTime()));
+    // const camera_x: f32 = @sin(time) * radius;
+    // const camera_z: f32 = @cos(time) * radius;
+
+    // const view = zlm.Mat4.createLookAt(zlm.Vec3.new(camera_x, 0.0, camera_z), zlm.Vec3.zero, zlm.Vec3.new(0.0, 1.0, 0.0));
+    const view = camera.lookAt();
+    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "view"), 1, c.GL_FALSE, @ptrCast(&view.fields));
+
     for (cube_positions, 0..) |cube, i| {
         const translation = zlm.Mat4.createTranslation(cube);
-        const angle: f32 = 20.0 * @as(f32, @floatFromInt(i + 1)) * @as(f32, @floatCast(c.glfwGetTime()));
+        const angle: f32 = 20.0 * @as(f32, @floatFromInt(i + 1));
         const model = zlm.Mat4.createAngleAxis(zlm.Vec3.new(1.0, 0.3, 0.5), zlm.toRadians(angle)).mul(translation);
         c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "model"), 1, c.GL_FALSE, @ptrCast(&model.fields));
         c.glDrawArrays(c.GL_TRIANGLES, 0, vertices.len);
@@ -220,6 +250,25 @@ fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: i32, height: i32) call
     _ = window;
     std.log.debug("framebuffer size changed to width={d}, height={d}", .{ width, height });
     c.glViewport(0, 0, width, height);
+}
+
+fn processInput(window: *c.GLFWwindow, camera: *Camera) void {
+    const camera_speed = 0.05;
+    if (c.glfwGetKey(window, c.GLFW_KEY_W) == c.GLFW_PRESS) {
+        camera.position = camera.position.add(camera.front.scale(camera_speed));
+    }
+
+    if (c.glfwGetKey(window, c.GLFW_KEY_S) == c.GLFW_PRESS) {
+        camera.position = camera.position.sub(camera.front.scale(camera_speed));
+    }
+
+    if (c.glfwGetKey(window, c.GLFW_KEY_A) == c.GLFW_PRESS) {
+        camera.position = camera.position.sub(camera.front.cross(camera.up).normalize().scale(camera_speed));
+    }
+
+    if (c.glfwGetKey(window, c.GLFW_KEY_D) == c.GLFW_PRESS) {
+        camera.position = camera.position.add(camera.front.cross(camera.up).normalize().scale(camera_speed));
+    }
 }
 
 pub fn main() !void {
@@ -291,13 +340,13 @@ pub fn main() !void {
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData1"), 0);
     c.glUniform1i(c.glGetUniformLocation(shaderProgram.id, "textureData2"), 1);
 
-    const view = zlm.Mat4.createTranslation(zlm.Vec3.new(0.0, 0.0, -3.0));
     const perspective = zlm.Mat4.createPerspective(zlm.toRadians(45.0), 800.0 / 600.0, 0.1, 100.0);
-    c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "view"), 1, c.GL_FALSE, @ptrCast(&view.fields));
     c.glUniformMatrix4fv(c.glGetUniformLocation(shaderProgram.id, "projection"), 1, c.GL_FALSE, @ptrCast(&perspective.fields));
 
+    var camera = Camera.default();
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
-        render(&shaderProgram, vao, container_img.id, face_img.id);
+        processInput(window, &camera);
+        render(&shaderProgram, vao, container_img.id, face_img.id, &camera);
         c.glfwSwapBuffers(window);
         c.glfwPollEvents();
     }
