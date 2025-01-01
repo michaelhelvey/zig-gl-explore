@@ -27,6 +27,9 @@ fn framebufferSizeCallback(window: ?*c.GLFWwindow, width: i32, height: i32) call
 }
 
 pub fn main() !void {
+    //-------------------------------------------------------------------------
+    // GLFW & OpenGL Init
+    //-------------------------------------------------------------------------
     if (c.glfwInit() != c.GLFW_TRUE) {
         std.log.err("could not init glfw", .{});
     }
@@ -52,6 +55,13 @@ pub fn main() !void {
         return;
     }
 
+    //-------------------------------------------------------------------------
+    // Scene configuration
+    //-------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------
+    // Render Loop Setup
+    //-------------------------------------------------------------------------
     var lastTime: f64 = 0;
     var deltaTime: f64 = 0;
     while (c.glfwWindowShouldClose(window) != c.GLFW_TRUE) {
