@@ -340,8 +340,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     const shaderProgram = try ShaderProgram.create(
-        try Shader.load(allocator, "./src/triangle.vert"),
-        try Shader.load(allocator, "./src/triangle.frag"),
+        try Shader.load(allocator, "./src/basic.vert"),
+        try Shader.load(allocator, "./src/basic.frag"),
         0,
         "outColor",
     );
